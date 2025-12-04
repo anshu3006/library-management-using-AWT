@@ -80,7 +80,7 @@ public class LibraryAWT extends JFrame {
     private transient JPanel bookListPanel, memberListPanel, loanListPanel;
 
     public LibraryAWT(){
-        super("Library Management System — Theme 2");
+        super("Library Management System");
         setSize(1100,700); setLocationRelativeTo(null); setDefaultCloseOperation(EXIT_ON_CLOSE);
 
         // models used for compatibility (not shown) still kept
