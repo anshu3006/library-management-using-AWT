@@ -12,16 +12,8 @@ import java.util.List;
 import java.util.function.*;
 import java.util.stream.Collectors;
 
-/**
- * Refactored LibraryAWT — compact while preserving UI and behavior.
- * Persistence file: library_data.ser
- *
- * Updates included:
- *  - Loan.issueDate (milliseconds) recorded at borrow time
- *  - Utilities to compute days since issue, days left (out of 30), and fine (₹2 per day after 30)
- *  - Loan list shows days left / overdue status in red when appropriate and shows fine
- *  - Loan detail dialog shows days issued, days left (colored) and fine (colored)
- */
+
+
 public class LibraryAWT extends JFrame {
     // ---------------- Data models ----------------
     private static final String DATA_FILE_NAME = "library_data.ser";
