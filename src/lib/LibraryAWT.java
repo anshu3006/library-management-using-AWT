@@ -15,15 +15,47 @@ import java.util.stream.Collectors;
 /**
  * Refactored LibraryAWT — compact while preserving UI and behavior.
  * Persistence file: library_data.ser
+ *
+ * Updates included:
+ *  - Loan.issueDate (milliseconds) recorded at borrow time
+ *  - Utilities to compute days since issue, days left (out of 30), and fine (₹2 per day after 30)
+ *  - Loan list shows days left / overdue status in red when appropriate and shows fine
+ *  - Loan detail dialog shows days issued, days left (colored) and fine (colored)
  */
 public class LibraryAWT extends JFrame {
     // ---------------- Data models ----------------
     private static final String DATA_FILE_NAME = "library_data.ser";
 
-    static class Book implements Serializable { String id, title, author; int year, total, available;
-        Book(String id, String t, String a, int y, int tot){ this.id=id;this.title=t;this.author=a;this.year=y;this.total=tot;this.available=tot;} }
-    static class Member implements Serializable { String id, name; Member(String id,String n){this.id=id;this.name=n;} }
-    static class Loan implements Serializable { String loanId, bookId, memberId; Loan(String L,String b,String m){this.loanId=L;this.bookId=b;this.memberId=m;} }
+    static class Book implements Serializable {
+        String id, title, author;
+        int year, total, available;
+        Book(String id, String t, String a, int y, int tot) { this.id = id; this.title = t; this.author = a; this.year = y; this.total = tot; this.available = tot; }
+    }
+
+    static class Member implements Serializable {
+        String id, name;
+        Member(String id, String n) { this.id = id; this.name = n; }
+    }
+
+    static class Loan implements Serializable {
+        String loanId, bookId, memberId;
+        long issueDate; // new: store epoch ms when loan was created
+
+        Loan(String L, String b, String m) {
+            this.loanId = L;
+            this.bookId = b;
+            this.memberId = m;
+            this.issueDate = System.currentTimeMillis();
+        }
+
+        // helper constructor to set custom issueDate (useful for seeding/testing)
+        Loan(String L, String b, String m, long issueDate) {
+            this.loanId = L;
+            this.bookId = b;
+            this.memberId = m;
+            this.issueDate = issueDate;
+        }
+    }
 
     List<Book> books = new ArrayList<>();
     List<Member> members = new ArrayList<>();
@@ -102,7 +134,7 @@ public class LibraryAWT extends JFrame {
         JScrollPane sp = new JScrollPane(list); sp.setBorder(null); sp.setPreferredSize(new Dimension(300,140)); popup.add(sp); popup.setFocusable(false);
     }
 
-    private boolean contains(String s, String q){ return s!=null && s.toLowerCase().contains(q); }
+    private boolean contains(String s, String q){ return s!=null && q!=null && s.toLowerCase().contains(q); }
 
     // create suggestion wiring: document listener + click + keys
     private void makeSuggestion(JTextField field, DefaultListModel<String> model, JList<String> list, JPopupMenu popup,
@@ -283,15 +315,50 @@ public class LibraryAWT extends JFrame {
         List<Loan> toShow = (query==null||query.trim().isEmpty())? new ArrayList<>(loans)
                 : loans.stream().filter(l -> contains(l.loanId,query.toLowerCase())||contains(l.bookId,query.toLowerCase())||contains(l.memberId,query.toLowerCase())).collect(Collectors.toList());
         if(toShow.isEmpty()) loanListPanel.add(emptyLabel("No loans found."));
-        else { int i=1; for(Loan l: toShow){ JPanel card=createCard(); card.setMaximumSize(new Dimension(Integer.MAX_VALUE,110));
+        else { int i=1; for(Loan l: toShow){ JPanel card=createCard(); card.setMaximumSize(new Dimension(Integer.MAX_VALUE,130));
             card.add(badgePanel(indexToLetters(i)), BorderLayout.WEST);
+
             JPanel center=new JPanel(); center.setOpaque(false); center.setLayout(new BoxLayout(center,BoxLayout.Y_AXIS));
+
             JLabel loanId=new JLabel("Loan: "+ shortId(l.loanId)); loanId.setForeground(ACCENT_SOFT); loanId.setFont(new Font("Monospaced",Font.BOLD,16));
             JLabel details=new JLabel("Book → "+l.bookId+"       Member → "+l.memberId); details.setForeground(FG); details.setFont(new Font("SansSerif",Font.BOLD,14));
-            center.add(loanId); center.add(Box.createVerticalStrut(8)); center.add(details); card.add(center, BorderLayout.CENTER);
+
+            // NEW UI LABELS: days, days left / overdue, fine
+            int days = daysSince(l.issueDate);
+            int fine = fineForLoan(l);
+            int left = daysLeft(l);
+
+            JLabel daysInfo = new JLabel("Issued: "+days+" days ago");
+            daysInfo.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            daysInfo.setForeground(MUTED);
+
+            JLabel leftInfo = new JLabel();
+            leftInfo.setFont(new Font("SansSerif", Font.BOLD, 12));
+            if (left < 0) {
+                leftInfo.setText("Overdue by " + (-left) + " days");
+                leftInfo.setForeground(Color.RED);
+            } else {
+                leftInfo.setText("Days Left: " + left);
+                // warn when close to due
+                leftInfo.setForeground(left <= 5 ? Color.RED : new Color(0,120,0));
+            }
+
+            JLabel fineInfo = new JLabel("Fine: ₹" + fine);
+            fineInfo.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            fineInfo.setForeground(fine > 0 ? Color.RED : MUTED);
+
+            center.add(loanId); center.add(Box.createVerticalStrut(6));
+            center.add(details); center.add(Box.createVerticalStrut(6));
+            center.add(daysInfo); center.add(Box.createVerticalStrut(4));
+            center.add(leftInfo); center.add(Box.createVerticalStrut(4));
+            center.add(fineInfo);
+
+            card.add(center, BorderLayout.CENTER);
+
             JPanel right=new JPanel(new BorderLayout()); right.setOpaque(false); JLabel meta=new JLabel("Loan Record", JLabel.RIGHT); meta.setForeground(MUTED); meta.setFont(new Font("SansSerif",Font.PLAIN,12));
             JLabel hint=new JLabel("<html><i style='color:#A07B73'>Click for details</i></html>", JLabel.RIGHT); hint.setFont(new Font("SansSerif",Font.PLAIN,11));
             right.add(meta, BorderLayout.NORTH); right.add(hint, BorderLayout.SOUTH); right.setBorder(new EmptyBorder(6,6,6,12)); card.add(right, BorderLayout.EAST);
+
             addCardHover(card, ()-> showLoanDetail(l)); loanListPanel.add(card); loanListPanel.add(Box.createVerticalStrut(12)); i++; } }
         loanListPanel.revalidate(); loanListPanel.repaint();
     }
@@ -331,7 +398,12 @@ public class LibraryAWT extends JFrame {
         p.add(labeledField("Book ID", bookF)); p.add(labeledField("Member ID", memberF));
         if(JOptionPane.showConfirmDialog(this,p,"Borrow Book",JOptionPane.OK_CANCEL_OPTION)==0){
             Book b=findBook(bookF.getText().trim()); Member m=findMember(memberF.getText().trim());
-            if(b!=null && m!=null && b.available>0){ b.available--; loans.add(new Loan(UUID.randomUUID().toString(), b.id, m.id)); updateAfterChange(); refreshLoanList(null); } else JOptionPane.showMessageDialog(this,"Invalid or unavailable book/member.");
+            if(b!=null && m!=null && b.available>0){
+                b.available--;
+                loans.add(new Loan(UUID.randomUUID().toString(), b.id, m.id)); // constructor sets issueDate to now
+                updateAfterChange();
+                refreshLoanList(null);
+            } else JOptionPane.showMessageDialog(this,"Invalid or unavailable book/member.");
         }
     }
 
@@ -347,7 +419,23 @@ public class LibraryAWT extends JFrame {
     // ---------------- details ----------------
     private void showBookDetail(Book b){ JOptionPane.showMessageDialog(this,new JLabel("<html><b>"+escape(b.title)+"</b><br>Author: "+escape(b.author)+"<br>Year: "+b.year+"<br>Available: "+b.available+"/"+b.total+"<br>ID: "+b.id+"</html>"), "Book Details", JOptionPane.INFORMATION_MESSAGE); }
     private void showMemberDetail(Member m){ JOptionPane.showMessageDialog(this,new JLabel("<html><b>"+escape(m.name)+"</b><br><span style='font-family:monospace;'>"+escape(m.id)+"</span></html>"), "Member Details", JOptionPane.INFORMATION_MESSAGE); }
-    private void showLoanDetail(Loan l){ JOptionPane.showMessageDialog(this,new JLabel("<html><b>Loan ID:</b> "+shortId(l.loanId)+"<br>Book: "+l.bookId+"<br>Member: "+l.memberId+"</html>"), "Loan Details", JOptionPane.INFORMATION_MESSAGE); }
+
+    private void showLoanDetail(Loan l){
+        int days = daysSince(l.issueDate);
+        int fine = fineForLoan(l);
+        int left = daysLeft(l);
+
+        String msg = "<html>"
+                + "<b>Loan ID:</b> " + shortId(l.loanId)
+                + "<br><b>Book:</b> " + l.bookId
+                + "<br><b>Member:</b> " + l.memberId
+                + "<br><b>Issued:</b> " + days + " days ago"
+                + "<br><b>Days Left:</b> <span style='color:"+(left<0?"red":"green")+"'>" + left + "</span>"
+                + "<br><b>Fine:</b> <span style='color:"+(fine>0?"red":"black")+"'>₹" + fine + "</span>"
+                + "</html>";
+
+        JOptionPane.showMessageDialog(this,new JLabel(msg),"Loan Details",JOptionPane.INFORMATION_MESSAGE);
+    }
 
     // ---------------- utility ----------------
     private int parseIntOrDefault(String s, int def){ try{return Integer.parseInt(s);}catch(Exception e){return def;} }
@@ -396,8 +484,40 @@ public class LibraryAWT extends JFrame {
         books.add(new Book("B014","Sapiens: A Brief History of Humankind","Yuval Noah Harari",2011,3));
         books.add(new Book("B015","The Psychology of Money","Morgan Housel",2020,5));
         members.add(new Member("M01","Aisha Khan")); members.add(new Member("M02","Rohan Verma")); members.add(new Member("M03","Priya Shah"));
+
+        // Example loan: create one real-time and one older to show fine calculation in sample
         loans.add(new Loan(UUID.randomUUID().toString(),"B001","M01"));
         Book b = findBook("B001"); if(b!=null) b.available = Math.max(0,b.available-1);
+
+        // create an older loan (e.g., 40 days ago) to demonstrate overdue fine in sample
+        long fortyDaysMs = System.currentTimeMillis() - (40L * 24 * 60 * 60 * 1000);
+        loans.add(new Loan(UUID.randomUUID().toString(),"B002","M02", fortyDaysMs));
+        Book b2 = findBook("B002"); if(b2!=null) b2.available = Math.max(0,b2.available-1);
+    }
+
+    // ---------------- Date & fine utilities ----------------
+    /**
+     * Returns number of whole days elapsed since timeMs to now.
+     */
+    private int daysSince(long timeMs){
+        long diff = System.currentTimeMillis() - timeMs;
+        return (int)(diff / (1000L*60*60*24));
+    }
+
+    /**
+     * Fine rule: first 30 days free; every day beyond 30 costs ₹2 per day.
+     */
+    private int fineForLoan(Loan l){
+        int days = daysSince(l.issueDate);
+        return days > 30 ? (days - 30) * 2 : 0;
+    }
+
+    /**
+     * Days left from 30-day allowance (can be negative if overdue).
+     */
+    private int daysLeft(Loan l){
+        int d = daysSince(l.issueDate);
+        return 30 - d;
     }
 
     // ---------------- main ----------------
